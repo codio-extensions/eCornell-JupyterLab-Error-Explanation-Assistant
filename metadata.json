@@ -1,5 +1,5 @@
 {
-  "name": "Custom Assistant Example",
+  "name": "eCornell-jupyterLab-errorExplanation",
   "type": "helper",
   "properties": {
     "user_type": "all", 
