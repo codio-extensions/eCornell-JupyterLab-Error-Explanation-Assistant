@@ -2,15 +2,6 @@
 // (ensures all global variables set in this extension cannot be referenced outside its scope)
 (async function(codioIDE, window) {
   
-   const systemPrompt = `You will be given a programming error message. Your task is to explain in plain, non-technical English what is causing the error, without suggesting any potential fixes or solutions.
-
-If provided with the programming assignment and the student's current code state, please carefully review them before explaining the error message.
-
-Note that information about common misconceptions should also be included to provide a full explanation.
-
-When referring to code in your explanation, please use markdown syntax. Wrap inline code with \` and multiline code with \`\`\`. 
-  `
-  
   // register(id: unique button id, name: name of button visible in Coach, function: function to call when button is clicked) 
   codioIDE.coachBot.register("customErrorExplanationJupyter", "Explain this Jupyter error!", onButtonPress)
 
@@ -113,16 +104,24 @@ If it is not a traditional error message, only answer "Yes" if it sounds like it
 
     // if validation result is yes, pass pasted text to error explanation API call with all context
     if (validation_result.result.includes("Yes")) {
-        //Define your assistant's userPrompt - this is where you will provide all the context you collected along with the task you want the LLM to generate text for.
+        
+        // Define your assistant's prompts here
+        // this is where you will provide the role definition, examples and the context you collected,
+        // along with the task you want the LLM to generate text for.
+        
+        const systemPrompt = `You will be given a programming error message. Your task is to explain in plain, non-technical English what is causing the error, without suggesting any potential fixes or solutions.
+
+If provided with the programming assignment and the student's current code state, please carefully review them before explaining the error message.
+
+Note that information about common misconceptions should also be included to provide a full explanation.
+
+When referring to code in your explanation, please use markdown syntax. Wrap inline code with \` and multiline code with \`\`\`. 
+  `
+        
         const userPrompt = `Here is the error message:
 <error_message>
 ${input}
 </error_message>
-
-Here is the description of the programming assignment the student is working on:
-<assignment>
-${context.guidesPage.content}
-</assignment>
 
 Here are the student's code files:
 
