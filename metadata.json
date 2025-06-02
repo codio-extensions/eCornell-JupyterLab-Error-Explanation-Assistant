@@ -2,7 +2,7 @@
   "name": "eCornell-jupyterLab-errorExplanation",
   "type": "helper",
   "properties": {
-    "user_type": "all", 
+    "user_type": "learner", 
     "component": "all"
   }
 }

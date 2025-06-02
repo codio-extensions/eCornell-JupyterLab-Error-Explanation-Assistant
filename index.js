@@ -1,78 +1,62 @@
 // Wrapping the whole extension in a JS function 
 // (ensures all global variables set in this extension cannot be referenced outside its scope)
 (async function(codioIDE, window) {
-  
-  // register(id: unique button id, name: name of button visible in Coach, function: function to call when button is clicked) 
-  codioIDE.coachBot.register("customErrorExplanationJupyter", "Explain this Jupyter error!", onButtonPress)
 
-  // function called when I have a question button is pressed
-  async function onButtonPress() {
+    codioIDE.onErrorState((isError, error) => {
+        console.log('codioIDE.onErrorState', {isError, error})
+        if (isError) {
+        codioIDE.coachBot.showTooltip("I can help explain this error...", () => {
+            codioIDE.coachBot.open({id: "errorExpWithFixes", params: "tooltip"})
+        })
+        }
+    })
 
-    // automatically collects all available context 
-    // returns the following object: {guidesPage, assignmentData, files, error}
-    let context = await codioIDE.coachBot.getContext()
-    // console.log(context)
+    // register(id: unique button id, name: name of button visible in Coach, function: function to call when button is clicked) 
+    codioIDE.coachBot.register("customErrorExplanationJupyter", "Explain this Jupyter error!", onButtonPress)
 
-    // gets the filetree as an object
-    let filetree = await codioIDE.files.getStructure()
-    // console.log("filetree", filetree)
-    
-    // recursively search filetree for files with specific extension, ignoring files in specified dirs
-    async function getFilesWithExtension(obj, extension, ignoredDirectories = []) {
-        const files = {};
+    // function called when I have a question button is pressed
+    async function onButtonPress(params) {
 
-        async function traverse(path, obj) {
-            for (const key in obj) {
-                // Check if the current directory should be ignored
-                if (typeof obj[key] === 'object') {
-                    // Skip if the current directory is in the ignored list
-                    if (ignoredDirectories.includes(key)) {
-                        continue;
-                    }
-                    
-                    // Recursively traverse the directory
-                    await traverse(path + "/" + key, obj[key]);
-                } 
-                // Check for files with the specified extension
-                else if (obj[key] === 1 && key.toLowerCase().endsWith(extension)) {
-                    let filepath = path + "/" + key
-                    // Remove the first / from filepath
-                    filepath = filepath.substring(1)
-                    const fileContent = await codioIDE.files.getContent(filepath)
-                    files[key] = fileContent
-                }
+        // automatically collects all available context 
+        let context = await codioIDE.coachBot.getContext()
+        // console.log(context)
+        
+        // select open jupyterlab notebook related context
+        let openJupyterFileContext = context.jupyterContext[0]
+        let jupyterFileName = openJupyterFileContext.path
+        let jupyterFileContent = openJupyterFileContext.content
+        
+        // filter and map cell indices of code and markdown cells into a new array
+        const markdownAndCodeCells = jupyterFileContent.map(
+            ({ id, ...rest }, index) => ({
+                 cell: index,
+                ...rest
+            })).filter(
+                obj => obj.type === 'markdown' || obj.type === 'code'
+            )
+        // console.log("code and markdown", JSON.stringify(markdownAndCodeCells))
+
+        let input
+
+        if (params == "tooltip") { 
+            // input the error message caught from error state automatically and show it in chat
+            input = context.error.text
+            codioIDE.coachBot.write(context.error.text, codioIDE.coachBot.MESSAGE_ROLES.USER)
+        } else {
+            try {
+                // ask for error message to be pasted as input
+                input = await codioIDE.coachBot.input("Please paste the error message you want me to explain!")
+            } catch (e) {
+                // catches the error/action when nothing is pasted or if the back to menu button is clicked
+                if (e.message == "Cancelled") 
+                codioIDE.coachBot.write("Please feel free to have any other error messages explained!")
+                codioIDE.coachBot.showMenu()
+                return
             }
         }
 
-        await traverse("", obj);
-        return files;
-    }
-
-    // retrieve files and file content with specific extension
-    const files = await getFilesWithExtension(filetree, '.ipynb', ['.ipynb_checkpoints'])
-
-    let student_files = ""
-
-    // join all fetched files as one string for LLM context 
-    for (const filename in files) {
-        student_files = student_files.concat(`
-        filename: ${filename}
-        file content: 
-        ${files[filename]}\n\n\n`)
-    }
-    console.log(student_files)
-
-    try {
-        input = await codioIDE.coachBot.input("Please paste the error message you want me to explain!")
-    } catch (e) {
-         if (e.message == "Cancelled") 
-            codioIDE.coachBot.write("Please feel free to have any other error messages explained!")
-            codioIDE.coachBot.showMenu()
-            return
-    }
-
-    // validation prompt to ensure pasted text is actually an error message
-    const valPrompt = `<Instructions>
+        // validation prompt to ensure pasted text is actually an error message
+        const valPrompt = `<Instructions>
 
 Please determine whether the following text appears to be a programming error message or not:
 
@@ -95,65 +79,50 @@ If it is not a traditional error message, only answer "Yes" if it sounds like it
 
 </Instructions>`
     
-    
-    const validation_result = await codioIDE.coachBot.ask({
-        systemPrompt: "You are a helpful assistant.",
-        userPrompt: valPrompt
-    }, {stream:false, preventMenu: true})
+        const validation_result = await codioIDE.coachBot.ask({
+            systemPrompt: "You are a helpful assistant.",
+            userPrompt: valPrompt
+        }, {stream:false, preventMenu: true})
 
-
-    // if validation result is yes, pass pasted text to error explanation API call with all context
-    if (validation_result.result.includes("Yes")) {
+        // if validation result is yes, pass pasted text to error explanation API call with all context
+        if (validation_result.result.includes("Yes")) {
         
-        // Define your assistant's prompts here
-        // this is where you will provide the role definition, examples and the context you collected,
-        // along with the task you want the LLM to generate text for.
-        
-        const systemPrompt = `You will be given a programming error message. Your task is to explain in plain, non-technical English what is causing the error, without suggesting any potential fixes or solutions.
-
-If provided with the programming assignment and the student's current code state, please carefully review them before explaining the error message.
-
+            // Define your assistant's prompts here
+            // this is where you will provide the role definition, examples and the context you collected,
+            // along with the task you want the LLM to generate text for.
+            
+            const systemPrompt = `You will be given a programming error message. Your task is to explain in plain, non-technical English what is causing the error, without suggesting any potential fixes or solutions.
+If provided with the student's jupyter notebook, please carefully review it before explaining the error message.
 Note that information about common misconceptions should also be included to provide a full explanation.
-
 When referring to code in your explanation, please use markdown syntax. Wrap inline code with \` and multiline code with \`\`\`. 
   `
         
-        const userPrompt = `Here is the error message:
+            const userPrompt = `Here is the error message:
 <error_message>
 ${input}
 </error_message>
 
-Here are the student's code files:
+Here is the student's jupyter notebook:
 
 <code>
-${student_files}
+${markdownAndCodeCells}
 </code> 
 
-If <assignment> and <code> are empty, assume that they're not available. 
-
-If the file extension in <student_files> is ".ipynb", it is a Jupyter Notebook.
-Here's the information you'll be given about the cells in the Jupyter Notebook:
-
-For each cell:
-1. "cell_type" - whether it is a code cell, markdown cell, etc.
-2. "execution_count" - The execution count of this cell in the notebook
-3. "metadata" - Any additional meta data relevant to this cell
-4. "outputs" -  If the cell eas executed or run, the output will be here
-5. "source" - This is the actual content of the cell
+If <code> is empty, assume that it's not available. 
 
 Phrase your explanation directly addressing the student as 'you'. 
 After writing your explanation in 2-3 sentences, double check that it does not suggest any fixes or solutions. 
 The explanation should only describe the cause of the error.`
 
-      const result = await codioIDE.coachBot.ask({
-        systemPrompt: systemPrompt,
-        messages: [{"role": "user", "content": userPrompt}]
-      })
+            const result = await codioIDE.coachBot.ask({
+                systemPrompt: systemPrompt,
+                messages: [{"role": "user", "content": userPrompt}]
+            })
+        }
+        else {
+            codioIDE.coachBot.write("This doesn't look like an error. I'm sorry, I can only help you by explaining programming error messages.")
+            codioIDE.coachBot.showMenu()
+        }
     }
-    else {
-        codioIDE.coachBot.write("This doesn't look like an error. I'm sorry, I can only help you by explaining programming error messages.")
-        codioIDE.coachBot.showMenu()
-    }
-  }
 
 })(window.codioIDE, window)
