@@ -105,7 +105,7 @@ ${input}
 Here is the student's jupyter notebook:
 
 <code>
-${markdownAndCodeCells}
+${JSON.stringify(markdownAndCodeCells)}
 </code> 
 
 If <code> is empty, assume that it's not available. 
